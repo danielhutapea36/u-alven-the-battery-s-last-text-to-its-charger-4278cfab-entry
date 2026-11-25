@@ -1,63 +1,66 @@
 #!/usr/bin/env python3
 """The Battery's Last Text to Its Charger — entry program.
 
-Writes one original last text message from a dying phone battery to its
-charger, to entry.txt.
-
-The bounty gate (kit RULES.txt): /output/entry.txt must be UTF-8 text of
-1 to 200 characters, not only white space. This program writes a fixed
-string, so every run produces byte-identical output. No network, no
-randomness, no clock reads, standard library only.
+The entry is a single fixed line: a dying phone battery's breakup text
+to the charger that spent the day charging someone else's phone. This
+program checks the line against the bounty gate (the kit's RULES.txt:
+UTF-8 text of 1 to 200 characters, not only white space, one line),
+writes it to entry.txt with no trailing newline, then reads the file
+back and compares it byte for byte so a silent truncation or encoding
+slip fails loudly instead of shipping. The string never changes, so
+every run writes identical bytes. Standard library only; no network,
+no randomness, no clock.
 """
 
 import os
 import sys
 
-ENTRY = "I saw you charging your ex's phone last night. Don't text back. I'm at 1% and I'd rather die than share a cable."
+TEXT = "I saw you charging your ex's phone last night. Don't text back. I'm at 1% and I'd rather die than share a cable."
 
-MIN_CHARS = 1
-MAX_CHARS = 200
+LOW = 1
+HIGH = 200
 
 
-def main() -> int:
-    if not MIN_CHARS <= len(ENTRY) <= MAX_CHARS:
-        print(
-            "entry is %d characters, outside the 1-200 gate" % len(ENTRY),
-            file=sys.stderr,
+def gate_errors(text):
+    """List the ways `text` breaks the bounty gate; empty means it passes."""
+    errors = []
+    if len(text) < LOW or len(text) > HIGH:
+        errors.append(
+            "entry is %d characters, gate allows %d-%d" % (len(text), LOW, HIGH)
         )
+    if text.strip() == "":
+        errors.append("entry is only white space")
+    if any(mark in text for mark in ("\r", "\n")):
+        errors.append("entry must be a single line, no line breaks")
+    return errors
+
+
+def main():
+    errors = gate_errors(TEXT)
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
         return 1
-    if not ENTRY.strip():
-        print("entry is only white space", file=sys.stderr)
+
+    folder = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
+    os.makedirs(folder, exist_ok=True)
+    target = os.path.join(folder, "entry.txt")
+
+    with open(target, "w", encoding="utf-8", newline="") as handle:
+        handle.write(TEXT)
+
+    with open(target, "rb") as handle:
+        raw = handle.read()
+    if raw.decode("utf-8") != TEXT:
+        print("entry.txt came back different from the entry", file=sys.stderr)
         return 1
-    if "\n" in ENTRY or "\r" in ENTRY:
-        # A last text is one message: a stray newline would break the gate's
-        # "one text" reading and the judge's side-by-side display.
-        print("entry must be a single line", file=sys.stderr)
+    if len(raw) != len(TEXT.encode("utf-8")):
+        # Same text but different bytes would mean an encoding slip:
+        # the judge reads the file's bytes, so the bytes must match too.
+        print("entry.txt byte length does not match the entry", file=sys.stderr)
         return 1
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR", "/output")
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir, "entry.txt")
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(ENTRY)
-    # Read back what was written and verify it is exactly the entry:
-    # a silent truncation or encoding slip must fail loudly, not ship.
-    with open(path, "r", encoding="utf-8", newline="") as f:
-        written = f.read()
-    if written != ENTRY:
-        print("entry.txt does not match the entry after writing", file=sys.stderr)
-        return 1
-    if written.endswith("\n"):
-        # The entry is one text with no trailing newline; a stray newline
-        # would be an extra character the judge reads as part of the text.
-        print("entry.txt has a trailing newline", file=sys.stderr)
-        return 1
-    if not MIN_CHARS <= len(written) <= MAX_CHARS:
-        print(
-            "entry.txt is %d characters, outside the 1-200 gate" % len(written),
-            file=sys.stderr,
-        )
-        return 1
-    print("wrote entry.txt: %d characters" % len(written))
+
+    print("entry.txt written: %d characters" % len(TEXT))
     return 0
 
 
